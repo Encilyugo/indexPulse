@@ -1,0 +1,44 @@
+name: Index Pulse
+
+on:
+  schedule:
+    # 北京时间 16:00 = UTC 08:00（GitHub cron 常延迟 5-30 分钟，可接受）
+    - cron: "0 8 * * 1-5"
+  workflow_dispatch:  # 允许手动触发
+
+permissions:
+  contents: write     # 允许 commit history.json 回 repo
+
+jobs:
+  pulse:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run index pulse
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: python index_pulse.py
+
+      - name: Commit history.json if changed
+        run: |
+          if [[ -n "$(git status --porcelain history.json)" ]]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add history.json
+            DATE=$(TZ=Asia/Shanghai date +%Y-%m-%d)
+            git commit -m "data: $DATE pulse"
+            git push
+          else
+            echo "No history change (likely non-trading day)."
+          fi
