@@ -142,9 +142,9 @@ def build_headline(snapshots: list[IndexSnapshot], is_first_run: bool) -> str:
     return "无明显变化（全部 <1pp）"
 
 
-def format_message(snapshots: list[IndexSnapshot], is_first_run: bool) -> str:
-    headline = build_headline(snapshots, is_first_run)
-    lines = ["【指数估值】", "", headline, ""]
+def format_body(snapshots: list[IndexSnapshot]) -> str:
+    """body 只放三行明细，结论由 Title 单独承担（锁屏第一眼即可见）。"""
+    lines = []
     for s in sorted(snapshots, key=lambda x: x.percentile):
         if s.delta is None:
             delta_str = "—"
@@ -154,12 +154,12 @@ def format_message(snapshots: list[IndexSnapshot], is_first_run: bool) -> str:
     return "\n".join(lines)
 
 
-def push_ntfy(message: str, title: str = "指数估值") -> None:
+def push_ntfy(title: str, body: str) -> None:
     if not NTFY_URL:
         raise RuntimeError("NTFY_TOPIC 未设置")
     requests.post(
         NTFY_URL,
-        data=message.encode("utf-8"),
+        data=body.encode("utf-8"),
         headers={
             "Title": title.encode("utf-8"),
             "Tags": "chart_with_upwards_trend",
@@ -202,9 +202,11 @@ def main() -> int:
         delta = None if is_first_run else round(p - yesterday.get(idx["display"], p), 1)
         snapshots.append(IndexSnapshot(display=idx["display"], percentile=p, delta=delta))
 
-    message = format_message(snapshots, is_first_run)
-    print(message)
-    push_ntfy(message)
+    headline = build_headline(snapshots, is_first_run)
+    body = format_body(snapshots)
+    print(headline)
+    print(body)
+    push_ntfy(headline, body)
     append_history(today, snapshots)
     return 0
 
