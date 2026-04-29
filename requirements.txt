@@ -1,3 +1,4 @@
 akshare
 requests
 pandas
+xlrd
