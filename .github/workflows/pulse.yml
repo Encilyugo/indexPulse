@@ -2,8 +2,8 @@ name: Index Pulse
 
 on:
   schedule:
-    # 北京时间 16:00 = UTC 08:00（GitHub cron 常延迟 5-30 分钟，可接受）
-    - cron: "0 8 * * 1-5"
+    # 北京时间 09:00 开盘前 = UTC 01:00（GitHub cron 常延迟 5-30 分钟，可接受）
+    - cron: "0 1 * * 1-5"
   workflow_dispatch:  # 允许手动触发
 
 permissions:

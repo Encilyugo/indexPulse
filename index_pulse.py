@@ -32,8 +32,9 @@ INDEXES = [
 ]
 
 PERCENTILE_WINDOW_YEARS = 10
-SINGLE_MOVE_THRESHOLD = 1.0      # pp
-SYNC_MOVE_THRESHOLD = 0.5        # pp
+SHOCK_MOVE_THRESHOLD = 2.0       # pp，异动（最高优先级）
+SINGLE_MOVE_THRESHOLD = 1.0      # pp，出现变化
+SYNC_MOVE_THRESHOLD = 0.5        # pp，齐涨/齐跌
 EXTREME_LOW = 20                 # 严格 <
 EXTREME_HIGH = 80                # 严格 >
 
@@ -122,24 +123,40 @@ def build_headline(snapshots: list[IndexSnapshot], is_first_run: bool) -> str:
     if is_first_run:
         return "首次运行（无历史对比）"
 
-    if any(s.percentile < EXTREME_LOW or s.percentile > EXTREME_HIGH for s in snapshots):
-        return "⚠️ 接近极端区间（需关注）"
-
+    has_extreme = any(
+        s.percentile < EXTREME_LOW or s.percentile > EXTREME_HIGH for s in snapshots
+    )
     deltas = [s.delta for s in snapshots if s.delta is not None]
+
     if deltas:
         max_abs = max(deltas, key=abs)
-        if abs(max_abs) >= SINGLE_MOVE_THRESHOLD:
-            sign = "+" if max_abs >= 0 else "-"
-            return f"出现变化（最大 {sign}{abs(max_abs):.1f}pp）"
+        sign = "+" if max_abs >= 0 else "-"
 
-        all_up = all(d >= SYNC_MOVE_THRESHOLD for d in deltas)
-        all_down = all(d <= -SYNC_MOVE_THRESHOLD for d in deltas)
-        if all_up:
-            return f"齐涨 +{min(deltas):.1f}pp"
-        if all_down:
-            return f"齐跌 {max(deltas):.1f}pp"  # 最接近 0 的负值
+        if abs(max_abs) >= SHOCK_MOVE_THRESHOLD:
+            base = f"🚨 异动（最大 {sign}{abs(max_abs):.1f}pp）"
+        elif abs(max_abs) >= SINGLE_MOVE_THRESHOLD:
+            base = f"出现变化（最大 {sign}{abs(max_abs):.1f}pp）"
+        else:
+            all_up = all(d >= SYNC_MOVE_THRESHOLD for d in deltas)
+            all_down = all(d <= -SYNC_MOVE_THRESHOLD for d in deltas)
+            if all_up:
+                base = f"齐涨 +{min(deltas):.1f}pp"
+            elif all_down:
+                base = f"齐跌 {max(deltas):.1f}pp"
+            else:
+                base = "无明显变化（全部 <1pp）"
+                if has_extreme:
+                    return f"{base}，但接近极端区间"
+                return base
+    else:
+        base = "无明显变化（全部 <1pp）"
+        if has_extreme:
+            return f"{base}，但接近极端区间"
+        return base
 
-    return "无明显变化（全部 <1pp）"
+    if has_extreme:
+        return f"{base}，接近极端区间"
+    return base
 
 
 def format_body(headline: str, snapshots: list[IndexSnapshot]) -> str:
