@@ -1,8 +1,8 @@
 """
 Enci Index Pulse - 极简 A 股估值日报
-推送沪深300、中证500、中证红利的 PE 百分位（10年滚动 TTM）到 ntfy。
+推送沪深300、中证500、上证红利的 PE 百分位（10年滚动 TTM）到 ntfy。
 设计跑在 GitHub Actions 上，history.json 由 workflow commit 回 repo。
-数据源: 中证指数公司官方 OSS (oss-ch.csindex.com.cn)
+数据源: akshare stock_index_pe_lg（爬乐咕乐股，10年完整历史）
 """
 
 from __future__ import annotations
@@ -26,9 +26,9 @@ HISTORY_FILE = SCRIPT_DIR / "history.json"
 CN_TZ = timezone(timedelta(hours=8))
 
 INDEXES = [
-    {"display": "沪深300", "code": "000300"},
-    {"display": "中证500", "code": "000905"},
-    {"display": "中证红利", "code": "000922"},
+    {"display": "沪深300", "akshare_symbol": "沪深300"},
+    {"display": "中证500", "akshare_symbol": "中证500"},
+    {"display": "上证红利", "akshare_symbol": "上证红利"},
 ]
 
 PERCENTILE_WINDOW_YEARS = 10
@@ -61,20 +61,23 @@ def is_trading_day(today: date) -> bool:
     return today.isoformat() in trade_dates
 
 
-def fetch_pe_percentile(code: str, today: date) -> float:
-    """拉取指定指数（中证代码）的 TTM PE 历史，返回最新值在近 10 年中的百分位（0-100）。"""
+def fetch_pe_percentile(symbol: str, today: date) -> float:
+    """拉取指定指数的 TTM PE 历史，返回最新值在近 10 年中的百分位（0-100）。"""
     import akshare as ak
-    df = ak.stock_zh_index_value_csindex(symbol=code)
+    df = ak.stock_index_pe_lg(symbol=symbol)
     df = df.copy()
     df["日期"] = df["日期"].astype(str)
     df = df.sort_values("日期")
 
-    cutoff = (today - timedelta(days=PERCENTILE_WINDOW_YEARS * 365)).isoformat()
-    window = df[df["日期"] >= cutoff].dropna(subset=["市盈率1"])
-    if window.empty:
-        raise RuntimeError(f"{code}: 10 年窗口内无 PE 数据")
+    if "滚动市盈率" not in df.columns:
+        raise RuntimeError(f"{symbol}: 返回数据缺少滚动市盈率列，列={list(df.columns)}")
 
-    series = window["市盈率1"].astype(float)
+    cutoff = (today - timedelta(days=PERCENTILE_WINDOW_YEARS * 365)).isoformat()
+    window = df[df["日期"] >= cutoff].dropna(subset=["滚动市盈率"])
+    if window.empty:
+        raise RuntimeError(f"{symbol}: 10 年窗口内无 PE 数据")
+
+    series = window["滚动市盈率"].astype(float)
     latest_pe = float(series.iloc[-1])
 
     rank = (series < latest_pe).sum() + (series == latest_pe).sum() / 2
@@ -207,7 +210,7 @@ def main() -> int:
 
     snapshots: list[IndexSnapshot] = []
     for idx in INDEXES:
-        p = fetch_pe_percentile(idx["code"], today)
+        p = fetch_pe_percentile(idx["akshare_symbol"], today)
         delta = None if is_first_run else round(p - yesterday.get(idx["display"], p), 1)
         snapshots.append(IndexSnapshot(display=idx["display"], percentile=p, delta=delta))
 
