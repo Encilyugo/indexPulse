@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 import traceback
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
@@ -174,28 +175,41 @@ def format_body(headline: str, snapshots: list[IndexSnapshot]) -> str:
     return "\n".join(lines)
 
 
-def push_ntfy(body: str) -> None:
+NTFY_RETRY_ATTEMPTS = 3
+NTFY_RETRY_DELAY_SEC = 5
+
+
+def _ntfy_post(body: bytes, headers: dict | None = None) -> None:
+    """POST 到 ntfy，4xx/5xx 抛异常，自动重试 3 次（间隔 5 秒）。"""
     if not NTFY_URL:
         raise RuntimeError("NTFY_TOPIC 未设置")
-    requests.post(
-        NTFY_URL,
-        data=body.encode("utf-8"),
-        timeout=15,
-    )
+    last_err: Exception | None = None
+    for attempt in range(NTFY_RETRY_ATTEMPTS):
+        try:
+            r = requests.post(NTFY_URL, data=body, headers=headers or {}, timeout=15)
+            r.raise_for_status()
+            return
+        except Exception as e:
+            last_err = e
+            if attempt < NTFY_RETRY_ATTEMPTS - 1:
+                time.sleep(NTFY_RETRY_DELAY_SEC)
+    raise RuntimeError(f"ntfy 推送失败 {NTFY_RETRY_ATTEMPTS} 次: {last_err}")
+
+
+def push_ntfy(body: str) -> None:
+    _ntfy_post(body.encode("utf-8"))
 
 
 def push_error(err: str) -> None:
     if not NTFY_URL:
         return
     try:
-        requests.post(
-            NTFY_URL,
-            data=f"❌ 执行失败\n{err}".encode("utf-8"),
+        _ntfy_post(
+            f"❌ 执行失败\n{err}".encode("utf-8"),
             headers={"Priority": "high"},
-            timeout=15,
         )
     except Exception:
-        pass
+        pass  # 错误通知本身也挂了就只能放弃
 
 
 def main() -> int:
